@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// WARNING: the app currently uses a hardcoded client-side login (see src/services/AuthContext.tsx),
+// so these rules cannot check who is calling — anyone with the Firebase config can read/write.
+// They DO protect data integrity: stock must be a whole number of grams >= 0, the stock ledger is
+// append-only, and bills can never be deleted. Once Firebase Authentication is added, replace
+// `true` below with `request.auth != null` (see SETUP.md).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return true; // TODO: request.auth != null
+    }
+
+    match /products/{id} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.stockGrams is int
+        && request.resource.data.stockGrams >= 0;
+      allow delete: if false;
+    }
+
+    // Append-only audit trail.
+    match /stockMovements/{id} {
+      allow read, create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Bills are cancelled, never deleted.
+    match /bills/{id} {
+      allow read, create, update: if signedIn();
+      allow delete: if false;
+    }
+
+    match /counters/{id} {
+      allow read, create, update: if signedIn();
+      allow delete: if false;
+    }
+
+    match /dailyRates/{id} {
+      allow read, write: if signedIn();
+    }
+  }
+}

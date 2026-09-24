@@ -1,0 +1,59 @@
+Bill details
+
+Supplier
+
+Business Name: Sai Cashews
+Address: No. 10 A, Thirumalai Swami Street, Lakshmi Nagar, 3rd Street, Kavundampalayam Post, Coimbatore – 641 030
+Mobile: 7708253836
+
+Invoice
+
+Invoice No.: 701
+Date: 29/07/2026
+Customer: The handwritten customer name is not sufficiently clear to confidently convert to English.
+
+
+Items
+
+| # | Item                     | Quantity | Unit |      Rate |     Amount |
+| - | ------------------------ | -------: | ---- | --------: | ---------: |
+| 1 | **Almond (Badam)**       |      1/2 | kg   | ₹4,500/kg |     ₹2,250 |
+| 2 | **Cashew**               |      1/2 | kg   | ₹1,800/kg |       ₹900 |
+| 3 | **Roasted Cashew**       |      1/4 | kg   | ₹2,000/kg |       ₹500 |
+| 4 | **Dry Grapes / Raisins** |      1/2 | kg   |   ₹520/kg |       ₹260 |
+|   |                          |          |      | **Total** | **₹3,910** |
+
+
+The arithmetic checks out:
+
+₹2,250 + ₹900 + ₹500 + ₹260 = ₹3,910
+
+Important observations for your software
+
+This bill suggests your inventory system should store at least:
+
+Product
+├── Product Name
+├── Category
+├── Unit (kg, g, etc.)
+├── Purchase Price
+├── Selling Price
+├── Current Stock
+└── Reorder Level
+
+And your invoice should have:
+
+Invoice
+├── Invoice Number
+├── Invoice Date
+├── Customer
+├── Items
+│   ├── Product
+│   ├── Quantity
+│   ├── Unit
+│   ├── Rate
+│   └── Amount
+├── Subtotal
+├── Tax
+├── Discount
+└── Grand Total
