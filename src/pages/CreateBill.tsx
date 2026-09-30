@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { CheckCircle2, Download, ExternalLink, Eye, FilePlus2, Lock, Plus, Save, Trash2, TriangleAlert } from 'lucide-react'
+import { CheckCircle2, Download, ExternalLink, Eye, FilePlus2, Plus, Save, Trash2, TriangleAlert } from 'lucide-react'
 import { btnPrimary, btnSecondary, cardCls, Field, inputCls, LoadingBlock, Spinner } from '../components/ui'
 import { listProducts } from '../services/masterService'
 import { createBill, editBill, getBill, ratesOnBill } from '../services/billService'
@@ -13,17 +13,24 @@ import { computeTotals, formatINR, formatKg, formatQty, gramsToKg, lineAmount, p
 import { formatDisplayDate, todayISO } from '../lib/date'
 import { cn, errorMessage } from '../lib/utils'
 import { QUICK_QTYS } from '../config/business'
-import type { Bill, BillDraft, BillItem, CustomerSnapshot, PaymentMode, Product } from '../types'
+import type { Bill, BillDraft, BillItem, CustomerSnapshot, PaymentMode, Product, ReceiptMode } from '../types'
 
 interface Row {
   key: number
   productId: string
   qty: string
-  /** Rate/kg — set automatically (today's daily rate, or the rate already on the bill). Not editable. */
-  rate: number
+  /** Rate/kg as typed. Pre-filled from today's Daily Rate (or the rate already on the bill); editable. */
+  rate: string
 }
 
 const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'card', label: 'Card' },
+  { value: 'credit', label: 'Credit' },
+]
+
+const RECEIPT_MODES: { value: ReceiptMode; label: string }[] = [
   { value: 'cash', label: 'Cash' },
   { value: 'upi', label: 'UPI' },
   { value: 'card', label: 'Card' },
@@ -33,7 +40,7 @@ const emptyCustomer: CustomerSnapshot = { name: '', phone: '', address: '', gstN
 const GSTIN_RE = /^[0-9]{2}[A-Z0-9]{13}$/
 
 let rowKey = 0
-const newRow = (): Row => ({ key: ++rowKey, productId: '', qty: '', rate: 0 })
+const newRow = (): Row => ({ key: ++rowKey, productId: '', qty: '', rate: '' })
 
 interface SavedInfo {
   bill: Bill
@@ -60,6 +67,8 @@ export default function CreateBill() {
   const [discount, setDiscount] = useState('')
   const [gstInput, setGstInput] = useState('')
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cash')
+  const [paidNow, setPaidNow] = useState('')
+  const [paidNowMode, setPaidNowMode] = useState<ReceiptMode>('cash')
 
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
@@ -74,6 +83,8 @@ export default function CreateBill() {
     setDiscount('')
     setGstInput('')
     setPaymentMode('cash')
+    setPaidNow('')
+    setPaidNowMode('cash')
   }, [])
 
   const load = useCallback(async () => {
@@ -92,10 +103,9 @@ export default function CreateBill() {
         setBillNumber(bill.billNumber)
         setBillDate(bill.billDate)
         setCustomer(bill.customerSnapshot)
-        setRows(bill.items.map((it) => ({ key: ++rowKey, productId: it.productId, qty: String(gramsToKg(it.qtyGrams)), rate: it.ratePerKg })))
+        setRows(bill.items.map((it) => ({ key: ++rowKey, productId: it.productId, qty: String(gramsToKg(it.qtyGrams)), rate: String(it.ratePerKg) })))
         setDiscount(bill.discount ? String(bill.discount) : '')
         setGstInput(bill.gstAmount ? String(bill.gstAmount) : '')
-        // Old bills may carry a mode that no longer exists (e.g. credit) — fall back to cash.
         setPaymentMode(PAYMENT_MODES.some((m) => m.value === bill.paymentMode) ? bill.paymentMode : 'cash')
       } else {
         setBillNumber(await peekNextInvoiceNumber())
@@ -120,11 +130,11 @@ export default function CreateBill() {
     return m
   }, [original])
 
-  // Editing keeps the rate each product was billed at; everything else uses today's daily rate.
-  const lockedRates = useMemo(() => (original ? ratesOnBill(original.items) : new Map<string, number>()), [original])
+  // Default rate for a product: the rate already on this bill (when editing), else today's Daily Rate.
+  const billedRates = useMemo(() => (original ? ratesOnBill(original.items) : new Map<string, number>()), [original])
   const rateFor = useCallback(
-    (productId: string) => lockedRates.get(productId) ?? productById.get(productId)?.currentRate ?? 0,
-    [lockedRates, productById],
+    (productId: string) => billedRates.get(productId) ?? productById.get(productId)?.currentRate ?? 0,
+    [billedRates, productById],
   )
 
   const availableFor = useCallback(
@@ -142,14 +152,14 @@ export default function CreateBill() {
     return rows.map((r) => {
       const product = productById.get(r.productId)
       const grams = parseQtyInput(r.qty)
-      const rate = r.rate
+      const rate = Number(r.rate) || 0
       const amount = grams && rate > 0 ? lineAmount(grams, rate) : 0
       const available = r.productId ? availableFor(r.productId) : 0
       const used = r.productId ? usedByProduct.get(r.productId) ?? 0 : 0
       let error = ''
       if (r.productId && r.qty && grams === null) error = 'Invalid quantity'
       else if (product && grams && used > available) error = `Only ${formatKg(available)} kg of ${product.name} in stock`
-      else if (product && !(rate > 0)) error = `No rate set today for ${product.name}. Set it on Daily Rates first.`
+      else if (product && r.rate.trim() && !(rate > 0)) error = 'Enter a valid rate'
       return { row: r, product, grams, rate, amount, available, error }
     })
   }, [rows, productById, availableFor])
@@ -158,13 +168,21 @@ export default function CreateBill() {
   const discountValue = Number(discount) || 0
   const gstValue = Number(gstInput) || 0
   const totals = useMemo(() => computeTotals(filledLines, discountValue, gstValue), [filledLines, discountValue, gstValue])
+  const isCredit = paymentMode === 'credit'
+  // A bill that was already on credit keeps its recorded payments; new ones come from Bills → Receive payment.
+  const wasCredit = isEdit && original?.paymentMode === 'credit'
+  const alreadyPaid = wasCredit ? original!.paidAmount : 0
+  const paidNowValue = Number(paidNow) || 0
+  const paidTotal = isCredit ? (wasCredit ? alreadyPaid : paidNowValue) : totals.grandTotal
+  const outstanding = isCredit ? round2(totals.grandTotal - paidTotal) : 0
   const hasErrors = computed.some((c) => c.error)
   const incompleteRow = computed.some((c) => (c.row.productId || c.row.qty) && !(c.product && c.grams && c.rate > 0))
 
   const updateRow = (key: number, patch: Partial<Row>) => setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
 
   const selectProduct = (key: number, productId: string) => {
-    updateRow(key, { productId, rate: productId ? rateFor(productId) : 0 })
+    const r = productId ? rateFor(productId) : 0
+    updateRow(key, { productId, rate: r > 0 ? String(r) : '' })
   }
 
   const removeRow = (key: number) => setRows((prev) => (prev.length === 1 ? [newRow()] : prev.filter((r) => r.key !== key)))
@@ -192,6 +210,8 @@ export default function CreateBill() {
     discount: discountValue,
     gstAmount: gstValue,
     paymentMode,
+    paidNow: isCredit && !wasCredit ? paidNowValue : 0,
+    paidNowMode,
   })
 
   const validate = (): string | null => {
@@ -201,12 +221,20 @@ export default function CreateBill() {
     const phoneDigits = customer.phone.replace(/\D/g, '')
     if (customer.phone.trim() && (phoneDigits.length < 10 || phoneDigits.length > 12)) return 'Enter a valid phone number'
     if (filledLines.length === 0) return 'Add at least one item with quantity and rate'
+    const missingRate = computed.find((c) => c.product && !(c.rate > 0))
+    if (missingRate) return `Enter the rate for ${missingRate.product!.name}`
     if (incompleteRow) return 'Complete or remove the unfinished item rows'
     const firstError = computed.find((c) => c.error)
     if (firstError) return firstError.error
     if (discount && !(Number(discount) >= 0)) return 'Enter a valid discount'
     if (gstInput && !(Number(gstInput) >= 0)) return 'Enter a valid GST amount'
     if (discountValue > totals.subtotal) return 'Discount cannot be more than the subtotal'
+    if (isCredit && paidNow && !(Number(paidNow) >= 0)) return 'Enter a valid paid amount'
+    if (isCredit && outstanding < 0) {
+      return wasCredit
+        ? `${formatINR(alreadyPaid)} was already received, which is more than the new total`
+        : 'Paid amount cannot be more than the grand total'
+    }
     return null
   }
 
@@ -224,6 +252,8 @@ export default function CreateBill() {
         items: draft.items,
         paymentMode,
         ...totals,
+        paidAmount: paidTotal,
+        balanceDue: outstanding,
       }
       const { generateInvoicePDF } = await import('../services/pdfGeneration')
       const { blob } = await generateInvoicePDF(data)
@@ -307,6 +337,7 @@ export default function CreateBill() {
             <div>
               <p className="font-medium text-slate-900">
                 Bill {saved.bill.billNumber} saved: {formatINR(saved.bill.grandTotal)} for {saved.bill.customerSnapshot.name}
+                {saved.bill.balanceDue > 0 && <span className="text-amber-700"> · Outstanding {formatINR(saved.bill.balanceDue)}</span>}
               </p>
               <p className="text-sm text-slate-600">{saved.uploaded ? 'PDF is in Google Drive.' : 'PDF upload is pending. Retry from the Bills page.'}</p>
             </div>
@@ -361,7 +392,7 @@ export default function CreateBill() {
       <div className={cardCls}>
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-900">Items</h3>
-          <span className="text-xs text-slate-500">Rates come from Daily Rates · Qty: 0.5, 1/2, ½ or 250g</span>
+          <span className="text-xs text-slate-500">Rate is filled from Daily Rates and can be changed · Qty: 0.5, 1/2, ½ or 250g</span>
         </div>
         {/* Column headings (desktop) — same grid as the rows so everything lines up */}
         <div className="hidden grid-cols-12 gap-x-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs font-semibold tracking-wide text-slate-500 uppercase md:grid">
@@ -382,7 +413,7 @@ export default function CreateBill() {
                     const r = rateFor(p.id)
                     const outOfStock = availableFor(p.id) <= 0
                     return (
-                      <option key={p.id} value={p.id} disabled={p.id !== row.productId && (outOfStock || !(r > 0))}>
+                      <option key={p.id} value={p.id} disabled={p.id !== row.productId && outOfStock}>
                         {p.name}: {formatKg(availableFor(p.id))} kg · {r > 0 ? `₹${r}/kg` : 'no rate today'}
                       </option>
                     )
@@ -395,7 +426,7 @@ export default function CreateBill() {
                 <DeleteRowButton onClick={() => removeRow(row.key)} />
               </div>
 
-              {/* Quantity — the only editable field */}
+              {/* Quantity */}
               <div className="order-3 col-span-5 md:order-2 md:col-span-3">
                 <span className="mb-1 block text-xs text-slate-500 md:hidden">Quantity (kg)</span>
                 <input
@@ -420,16 +451,31 @@ export default function CreateBill() {
                 </div>
               </div>
 
-              {/* Rate — read-only, comes from Daily Rates */}
+              {/* Rate — pre-filled from Daily Rates, editable */}
               <div className="order-4 col-span-3 md:order-3 md:col-span-2">
                 <span className="mb-1 block text-xs text-slate-500 md:hidden">Rate / kg</span>
-                <div
-                  className="flex h-10 items-center justify-end gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 tabular-nums"
-                  title={lockedRates.has(row.productId) ? 'Rate this item was billed at' : "Today's rate from Daily Rates"}
-                >
-                  <Lock className="h-3 w-3 shrink-0 text-slate-400" />
-                  {rate > 0 ? formatINR(rate) : <span className="text-slate-400">—</span>}
+                <div className="relative">
+                  <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-slate-400">₹</span>
+                  <input
+                    className={cn(inputCls, 'h-10 pl-6 text-right tabular-nums', product && !(rate > 0) && 'border-amber-300')}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    placeholder="Rate"
+                    value={row.rate}
+                    onChange={(e) => updateRow(row.key, { rate: e.target.value })}
+                  />
                 </div>
+                {product && product.currentRate > 0 && rate !== product.currentRate && (
+                  <button
+                    type="button"
+                    className="mt-1.5 block w-full text-right text-xs text-blue-600 hover:underline"
+                    onClick={() => updateRow(row.key, { rate: String(product.currentRate) })}
+                  >
+                    Today ₹{product.currentRate}
+                  </button>
+                )}
               </div>
 
               {/* Amount (+ delete on desktop) */}
@@ -471,6 +517,30 @@ export default function CreateBill() {
             <span className="mb-1 block text-sm font-medium text-slate-700">Payment mode</span>
             <Segmented options={PAYMENT_MODES} value={paymentMode} onChange={setPaymentMode} />
           </div>
+          {isCredit && (
+            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              {wasCredit ? (
+                <p className="text-sm text-slate-700">
+                  Already received: <b className="tabular-nums">{formatINR(alreadyPaid)}</b>
+                  <span className="block text-xs text-slate-500">To add more payments, use “Receive payment” on the Bills page.</span>
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Paid now (₹)" hint="Leave empty if nothing is paid yet">
+                    <MoneyInput value={paidNow} onChange={setPaidNow} />
+                  </Field>
+                  <div>
+                    <span className="mb-1 block text-sm font-medium text-slate-700">Paid by</span>
+                    <Segmented options={RECEIPT_MODES} value={paidNowMode} onChange={setPaidNowMode} />
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-amber-200 pt-2">
+                <span className="text-sm font-medium text-amber-900">Outstanding</span>
+                <span className={cn('text-lg font-bold tabular-nums', outstanding < 0 ? 'text-red-600' : 'text-amber-700')}>{formatINR(outstanding)}</span>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Discount (₹)" hint="Subtracted from the total">
               <MoneyInput value={discount} onChange={setDiscount} />
@@ -490,6 +560,15 @@ export default function CreateBill() {
               <dt className="text-base font-semibold text-slate-900">Grand Total</dt>
               <dd className="text-2xl font-bold text-blue-700 tabular-nums">{formatINR(totals.grandTotal)}</dd>
             </div>
+            {isCredit && (
+              <>
+                <TotalRow label="Paid" value={formatINR(paidTotal)} />
+                <div className="flex items-center justify-between">
+                  <dt className="font-medium text-amber-800">Outstanding</dt>
+                  <dd className="font-bold text-amber-700 tabular-nums">{formatINR(outstanding)}</dd>
+                </div>
+              </>
+            )}
           </dl>
           <p className="mt-1 text-right text-xs text-slate-400">{formatDisplayDate(billDate)} · {filledLines.length} item(s)</p>
         </div>

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { Lock, User } from 'lucide-react'
 import { useAuth } from '../services/AuthContext'
 import { BUSINESS } from '../config/business'
+import logoUrl from '../assets/logo.jpg'
 
 export default function Login() {
   const { isAuthenticated, login } = useAuth()
@@ -27,9 +28,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 px-4">
       <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-lg font-bold text-white">
-            SC
-          </div>
+          <img src={logoUrl} alt={BUSINESS.name} className="mx-auto mb-2 h-36 w-36 object-contain" />
           <h1 className="text-xl font-semibold text-slate-900">{BUSINESS.name}</h1>
           <p className="text-sm text-slate-500">{BUSINESS.tagline}</p>
         </div>

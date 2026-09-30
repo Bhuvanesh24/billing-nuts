@@ -4,8 +4,10 @@
  */
 import assert from 'node:assert/strict'
 import {
+  applyPayment,
   canCancel,
   computeTotals,
+  creditBalance,
   formatKg,
   formatQty,
   gramsToKg,
@@ -245,6 +247,35 @@ test('paise are kept exactly (no rounding to whole rupees)', () => {
   assert.equal(t.subtotal, 0.3)
   assert.equal(t.gstAmount, 0.02)
   assert.equal(t.grandTotal, 0.27)
+})
+
+console.log('\nCredit / outstanding')
+
+test('credit bill: outstanding = total − paid', () => {
+  assert.equal(creditBalance(3910, 0), 3910)
+  assert.equal(creditBalance(3910, 1000), 2910)
+  assert.equal(creditBalance(3910, 3910), 0)
+  assert.equal(creditBalance(100.3, 0.1), 100.2)
+})
+
+test('credit bill: paying more than the total is rejected', () => {
+  assert.throws(() => creditBalance(1000, 1000.01))
+  assert.throws(() => creditBalance(1000, -1))
+})
+
+test('receiving payments reduces outstanding until fully paid', () => {
+  let due = creditBalance(3910, 1000)
+  due = applyPayment(due, 1500)
+  assert.equal(due, 1410)
+  due = applyPayment(due, 1410)
+  assert.equal(due, 0)
+})
+
+test('a payment above the outstanding, zero or negative is rejected', () => {
+  assert.throws(() => applyPayment(500, 500.01), /Only ₹500.00 is outstanding/)
+  assert.throws(() => applyPayment(500, 0))
+  assert.throws(() => applyPayment(500, -10))
+  assert.throws(() => applyPayment(0, 1))
 })
 
 console.log('\nExample bill No. 701 (29/07/2026)')

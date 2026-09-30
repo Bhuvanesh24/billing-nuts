@@ -2,6 +2,7 @@ import { GState, jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import QRCode from 'qrcode'
 import signatureUrl from '../assets/signature.png'
+import logoUrl from '../assets/logo-print.jpg'
 import { BANK, BUSINESS, INVOICE_TERMS, UPI } from '../config/business'
 import { formatKg, round2 } from '../lib/calculator'
 import { formatDisplayDate, formatFileDate } from '../lib/date'
@@ -20,6 +21,8 @@ export type InvoiceData = Pick<
   | 'discount'
   | 'gstAmount'
   | 'grandTotal'
+  | 'paidAmount'
+  | 'balanceDue'
 > & { status?: Bill['status'] }
 
 // Built-in PDF fonts have no ₹ glyph, so amounts use "Rs." in the PDF.
@@ -36,22 +39,25 @@ export function invoiceFileName(data: Pick<InvoiceData, 'billNumber' | 'customer
   return `Bill_${number}_${safeFilePart(data.customerSnapshot.name)}_${formatFileDate(data.billDate)}.pdf`
 }
 
-let signatureCache: string | null | undefined
-async function loadSignature(): Promise<string | null> {
-  if (signatureCache !== undefined) return signatureCache
+const imageCache = new Map<string, string | null>()
+/** Loads a bundled image as a data URL. Returns null on failure — the PDF still generates without it. */
+async function loadImage(url: string): Promise<string | null> {
+  if (imageCache.has(url)) return imageCache.get(url)!
+  let dataUrl: string | null = null
   try {
-    const res = await fetch(signatureUrl)
+    const res = await fetch(url)
     const blob = await res.blob()
-    signatureCache = await new Promise<string>((resolve, reject) => {
+    dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve(String(reader.result))
       reader.onerror = () => reject(reader.error)
       reader.readAsDataURL(blob)
     })
   } catch {
-    signatureCache = null // PDF still generates without the signature
+    dataUrl = null
   }
-  return signatureCache
+  imageCache.set(url, dataUrl)
+  return dataUrl
 }
 
 export async function generateInvoicePDF(data: InvoiceData): Promise<{ blob: Blob; fileName: string }> {
@@ -70,30 +76,43 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<{ blob: Blo
   doc.setFillColor(...blue)
   doc.rect(0, 0, pageW, 3, 'F')
 
+  const LOGO = 26
+  const logo = await loadImage(logoUrl)
+  let tx0 = M
+  if (logo) {
+    try {
+      doc.addImage(logo, 'JPEG', M - 1, 5, LOGO, LOGO, undefined, 'FAST')
+      tx0 = M + LOGO + 2
+    } catch {
+      // ignore a broken image
+    }
+  }
+
   let y = 14
   doc.setTextColor(...slate900)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(20)
-  doc.text(BUSINESS.name, M, y)
+  doc.text(BUSINESS.name, tx0, y)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(...slate500)
   y += 5
   for (const line of BUSINESS.addressLines) {
-    doc.text(line, M, y)
+    doc.text(line, tx0, y)
     y += 4
   }
   const contact = [`Mobile: ${BUSINESS.phone}`, BUSINESS.email ? `Email: ${BUSINESS.email}` : ''].filter(Boolean).join('   ')
-  doc.text(contact, M, y)
+  doc.text(contact, tx0, y)
   y += 4
   if (isGst) {
     doc.setTextColor(...slate900)
     doc.setFont('helvetica', 'bold')
-    doc.text(`GSTIN: ${BUSINESS.gstin}`, M, y)
+    doc.text(`GSTIN: ${BUSINESS.gstin}`, tx0, y)
     doc.setFont('helvetica', 'normal')
     y += 4
   }
+  if (logo) y = Math.max(y, 5 + LOGO)
 
   doc.setTextColor(...blue)
   doc.setFont('helvetica', 'bold')
@@ -203,6 +222,21 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<{ blob: Blo
   doc.text(`Rs. ${money(data.grandTotal)}`, right, ty + 2, { align: 'right' })
   doc.setFont('helvetica', 'normal')
   ty += 10
+  if (data.paymentMode === 'credit') {
+    doc.setFontSize(9)
+    doc.setTextColor(...slate500)
+    doc.text('Paid', tx, ty)
+    doc.setTextColor(...slate900)
+    doc.text(money(data.paidAmount), right, ty, { align: 'right' })
+    ty += 5.5
+    doc.setFont('helvetica', 'bold')
+    if (data.balanceDue > 0) doc.setTextColor(217, 119, 6)
+    else doc.setTextColor(5, 150, 105)
+    doc.text(data.balanceDue > 0 ? 'Outstanding' : 'Fully paid', tx, ty)
+    doc.text(`Rs. ${money(data.balanceDue)}`, right, ty, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+    ty += 6
+  }
 
   // ---------------- Amount in words (left) ----------------
   doc.setFontSize(8)
@@ -216,7 +250,8 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<{ blob: Blo
   doc.setFont('helvetica', 'normal')
 
   // ---------------- UPI QR ----------------
-  const qrAmount = data.grandTotal
+  // Credit bills ask only for what is still outstanding.
+  const qrAmount = data.paymentMode === 'credit' ? data.balanceDue : data.grandTotal
   let ly = y + 5 + words.length * 4 + 4
   if (qrAmount > 0 && data.status !== 'cancelled') {
     const upiUrl = `upi://pay?pa=${encodeURIComponent(UPI.vpa)}&pn=${encodeURIComponent(UPI.merchantName)}&am=${qrAmount.toFixed(2)}&cu=INR`
@@ -260,7 +295,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<{ blob: Blo
   const sigX = right - 55
   doc.setFontSize(9)
   doc.text(`For ${BUSINESS.name}`, right, y, { align: 'right' })
-  const signature = await loadSignature()
+  const signature = await loadImage(signatureUrl)
   if (signature) {
     try {
       doc.addImage(signature, 'PNG', sigX + 8, y + 3, 45, 15, undefined, 'FAST')

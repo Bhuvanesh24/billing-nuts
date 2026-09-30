@@ -135,8 +135,8 @@ export default function Reports() {
         ...salesByDay.map((r) => [formatDisplayDate(r.date), r.bills, formatKg(r.grams), round2(r.subtotal), round2(r.discount), round2(r.tax), round2(r.total)]),
         ['Total', salesTotals.bills, formatKg(salesTotals.grams), round2(salesTotals.subtotal), round2(salesTotals.discount), round2(salesTotals.tax), round2(salesTotals.total)],
         [],
-        ['Bill No', 'Date', 'Customer', 'Phone', 'GSTIN', 'Payment', 'Subtotal', 'Discount', 'GST', 'Grand Total', 'Status'],
-        ...bills.map((b) => [b.billNumber, formatDisplayDate(b.billDate), b.customerSnapshot.name, b.customerSnapshot.phone, b.customerSnapshot.gstNo, b.paymentMode, b.subtotal, b.discount, b.gstAmount, b.grandTotal, b.status]),
+        ['Bill No', 'Date', 'Customer', 'Phone', 'GSTIN', 'Payment', 'Subtotal', 'Discount', 'GST', 'Grand Total', 'Paid', 'Outstanding', 'Status'],
+        ...bills.map((b) => [b.billNumber, formatDisplayDate(b.billDate), b.customerSnapshot.name, b.customerSnapshot.phone, b.customerSnapshot.gstNo, b.paymentMode, b.subtotal, b.discount, b.gstAmount, b.grandTotal, b.paidAmount, b.balanceDue, b.status]),
       ]
     } else if (tab === 'products') {
       name = `product_sales_${range}.csv`

@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { AlertTriangle, ArrowDownToLine, Boxes, FilePlus2, IndianRupee, Receipt, Scale, Tags } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, Boxes, FilePlus2, HandCoins, IndianRupee, Receipt, Scale, Tags } from 'lucide-react'
 import { Badge, cardCls, EmptyState, LoadingBlock } from '../components/ui'
 import { listProducts } from '../services/masterService'
-import { listBills, listRecentBills } from '../services/billService'
+import { listBills, listOutstandingBills, listRecentBills } from '../services/billService'
 import { getRatesForDate } from '../services/rateService'
 import { formatINR, formatKg, round2 } from '../lib/calculator'
 import { formatDisplayDate, todayISO } from '../lib/date'
@@ -16,6 +16,7 @@ interface DashboardData {
   todayBills: Bill[]
   recent: Bill[]
   missingRate: Product[]
+  outstanding: Bill[]
 }
 
 export default function Dashboard() {
@@ -26,14 +27,15 @@ export default function Dashboard() {
     ;(async () => {
       try {
         const today = todayISO()
-        const [products, todayBills, recent, todayRates] = await Promise.all([
+        const [products, todayBills, recent, todayRates, outstanding] = await Promise.all([
           listProducts({ activeOnly: true }),
           listBills(today, today),
           listRecentBills(6),
           getRatesForDate(today),
+          listOutstandingBills(),
         ])
         if (cancelled) return
-        setData({ products, todayBills, recent, missingRate: products.filter((p) => !todayRates.has(p.id)) })
+        setData({ products, todayBills, recent, missingRate: products.filter((p) => !todayRates.has(p.id)), outstanding })
       } catch (e) {
         toast.error(errorMessage(e, 'Failed to load dashboard'))
       }
@@ -75,11 +77,19 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard icon={<IndianRupee className="h-5 w-5" />} label="Today's sales" value={formatINR(salesTotal)} sub={`Cash ${formatINR(byMode('cash'))} · UPI ${formatINR(byMode('upi'))} · Card ${formatINR(byMode('card'))}`} />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StatCard icon={<IndianRupee className="h-5 w-5" />} label="Today's sales" value={formatINR(salesTotal)} sub={`Cash ${formatINR(byMode('cash'))} · UPI ${formatINR(byMode('upi'))} · Card ${formatINR(byMode('card'))} · Credit ${formatINR(byMode('credit'))}`} />
         <StatCard icon={<Receipt className="h-5 w-5" />} label="Bills today" value={String(active.length)} sub={`${data.todayBills.length - active.length} cancelled`} />
         <StatCard icon={<Scale className="h-5 w-5" />} label="Sold today" value={`${formatKg(gramsSold)} kg`} />
         <StatCard icon={<Boxes className="h-5 w-5" />} label="Stock value" value={formatINR(stockValue)} sub={`${formatKg(stockGrams)} kg at today's rates`} />
+        <Link to="/bills?view=outstanding" className="col-span-2 lg:col-span-1">
+          <StatCard
+            icon={<HandCoins className="h-5 w-5" />}
+            label="Credit outstanding"
+            value={formatINR(round2(data.outstanding.reduce((s, b) => s + b.balanceDue, 0)))}
+            sub={data.outstanding.length ? `${data.outstanding.length} bill(s) · tap to collect` : 'Nothing due'}
+          />
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">

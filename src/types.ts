@@ -72,7 +72,20 @@ export interface CustomerSnapshot {
   gstNo: string
 }
 
-export type PaymentMode = 'cash' | 'upi' | 'card'
+/** 'credit' = customer pays later; the unpaid part is tracked as balanceDue. */
+export type PaymentMode = 'cash' | 'upi' | 'card' | 'credit'
+/** How a credit payment was actually received. */
+export type ReceiptMode = 'cash' | 'upi' | 'card'
+
+/** One amount received against a credit bill. */
+export interface Payment {
+  amount: number
+  mode: ReceiptMode
+  /** YYYY-MM-DD (local date) */
+  date: string
+  note: string
+}
+
 export type BillStatus = 'active' | 'cancelled'
 export type PdfStatus = 'uploaded' | 'pending'
 
@@ -94,6 +107,12 @@ export interface Bill extends BillTotals {
   customerSnapshot: CustomerSnapshot
   items: BillItem[]
   paymentMode: PaymentMode
+  /** Total received so far. Equals grandTotal for cash/UPI/card bills. */
+  paidAmount: number
+  /** grandTotal − paidAmount. Only credit bills can have a balance. */
+  balanceDue: number
+  /** Money received against a credit bill (empty for other modes). */
+  payments: Payment[]
   status: BillStatus
   pdfStatus: PdfStatus
   driveFileId: string
@@ -110,6 +129,13 @@ export interface BillDraft {
   discount: number
   gstAmount: number
   paymentMode: PaymentMode
+  /**
+   * Credit bills only: amount paid at the time of billing (0 = nothing paid yet).
+   * Ignored when editing a bill that was already on credit — later payments are
+   * recorded with recordPayment instead.
+   */
+  paidNow: number
+  paidNowMode: ReceiptMode
 }
 
 export interface Counter {

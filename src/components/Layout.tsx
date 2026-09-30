@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../services/AuthContext'
 import { useDrive } from '../services/useDrive'
 import { BUSINESS } from '../config/business'
+import logoUrl from '../assets/logo.jpg'
 import { cn, errorMessage } from '../lib/utils'
 
 const NAV_ITEMS = [
@@ -75,13 +76,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-bold text-white">
-              {BUSINESS.name
-                .split(' ')
-                .map((w) => w[0])
-                .join('')
-                .slice(0, 2)}
-            </div>
+            <img src={logoUrl} alt={BUSINESS.name} className="h-12 w-12 shrink-0 rounded-xl border border-slate-100 object-contain" />
             <div>
               <p className="font-semibold text-slate-900">{BUSINESS.name}</p>
               <p className="text-xs text-slate-500">{BUSINESS.tagline}</p>
@@ -120,6 +115,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <button className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </button>
+            <img src={logoUrl} alt="" className="h-8 w-8 shrink-0 rounded-lg object-contain lg:hidden" />
             <h1 className="truncate text-lg font-semibold text-slate-900">{pageTitle(location.pathname)}</h1>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">

@@ -97,6 +97,28 @@ export function computeTotals(lines: { amount: number }[], discount: number, gst
 }
 
 // ---------------------------------------------------------------------------
+// Credit / outstanding
+// ---------------------------------------------------------------------------
+
+/** Outstanding on a credit bill. Throws if more has been paid than the bill total. */
+export function creditBalance(grandTotal: number, paidAmount: number): number {
+  const paid = round2(paidAmount)
+  if (!(paid >= 0)) throw new Error('Paid amount cannot be negative')
+  if (paid > round2(grandTotal)) {
+    throw new Error(`Paid ${formatINR(paid)} is more than the bill total ${formatINR(grandTotal)}`)
+  }
+  return round2(grandTotal - paid)
+}
+
+/** Receiving money against a credit bill. Returns the new balance; never lets it go below 0. */
+export function applyPayment(balanceDue: number, amount: number): number {
+  const amt = round2(amount)
+  if (!(amt > 0)) throw new Error('Enter an amount greater than 0')
+  if (amt > round2(balanceDue)) throw new Error(`Only ${formatINR(balanceDue)} is outstanding on this bill`)
+  return round2(balanceDue - amt)
+}
+
+// ---------------------------------------------------------------------------
 // Stock planning (used inside Firestore transactions and in tests)
 // ---------------------------------------------------------------------------
 

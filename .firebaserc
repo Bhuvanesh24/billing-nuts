@@ -1,6 +1,6 @@
 {
   "projects": {
-    "staging": "billing-nuts"
+    "default": "sai-cashews"
   },
   "targets": {},
   "etags": {}
